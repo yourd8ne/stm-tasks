@@ -1,0 +1,386 @@
+openapi: 3.0.0
+info:
+  title: Application Management API
+  description: |
+    API для системы подачи и обработки заявлений.
+    Роли: 
+    - **Пользователь** — создает заявления, просматривает свои отправки.
+    - **Руководитель** — принимает решения по заявлениям.
+    - **Администратор** — управляет шаблонами и пользователями.
+  version: 1.0.0
+servers:
+  - description: SwaggerHub API Auto Mocking
+    url: https://virtserver.swaggerhub.com/mkhl/stm/1.0.0
+  - url: https://statements.stm-labs.com/v1
+    description: Production server
+  - url: http://localhost:8080/v1
+    description: Local development server
+
+tags:
+  - name: Statements
+    description: Работа с заявлениями
+  - name: Templates
+    description: Управление шаблонами заявлений (только для администраторов)
+  - name: Users
+    description: Управление пользователями (только для администраторов)
+  - name: Profile
+    description: Настройки профиля
+
+paths:
+  # --- Заявления ---
+  /statements:
+    post:
+      tags: [Statements]
+      summary: Создать новое заявление
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatementCreateRequest'
+      responses:
+        201:
+          description: Заявление успешно создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementResponse'
+        400:
+          description: Неверные данные (например, не заполнено обязательное поле)
+        403:
+          description: Доступ запрещен (недостаточно прав)
+
+  /statements/sent:
+    get:
+      tags: [Statements]
+      summary: Просмотр отправленных заявлений (для пользователя)
+      responses:
+        200:
+          description: Список заявлений
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StatementShort'
+              example:
+                - id: 101
+                  title: "Заявление на отпуск"
+                  status: "На рассмотрении"
+                  createdAt: "2023-05-20T10:00:00Z"
+                - id: 102
+                  title: "Заявление на командировку"
+                  status: "Одобрено"
+                  createdAt: "2023-05-18T14:30:00Z"
+
+  /statements/received:
+      get:
+        tags: [Statements]
+        summary: Просмотр адресованных заявлений
+        description: |
+          **Требуется роль:** manager.  
+          Возвращает заявления, адресованные текущему руководителю.
+        security:
+          - BearerAuth: []
+        responses:
+          200:
+            description: Список заявлений
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/StatementShort'
+                  example:
+                  - id: 102
+                    title: "Заявление на отпуск"
+                    status: "На рассмотрении"
+                    createdAt: "2023-05-20T10:00:00Z"
+                    author:
+                      id: 45
+                      name: "Анна Сидорова"
+                      departament: "Hr отдел"
+                  - id: 106
+                    title: "Заявление на командировку"
+                    status: "На рассмотрении"
+                    createdAt: "2023-05-18T14:30:00Z"
+                    author:
+                      id: 45
+                      name: "Николай Иванов"
+                      departament: "Отдел маркетинга"
+          403:
+            description: |
+              Доступ запрещен.  
+              **Причины:**  
+              - Токен отсутствует или невалиден.  
+              - У пользователя недостаточно прав (роль не `manager`).
+
+  /statements/{id}/decision:
+    put:
+      tags: [Statements]
+      summary: Принять решение по заявлению (для руководителя)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionRequest'
+      responses:
+        200:
+          description: Решение принято
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementResponse'
+        403:
+          description: Доступ запрещен
+
+  # --- Шаблоны (Администратор) ---
+  /templates:
+    get:
+      tags: [Templates]
+      summary: Получить список шаблонов
+      responses:
+        200:
+          description: Список шаблонов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TemplateResponse'
+    post:
+      tags: [Templates]
+      summary: Создать новый шаблон
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateCreateRequest'
+      responses:
+        201:
+          description: Шаблон создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+
+  # --- Пользователи (Администратор) ---
+  /users:
+    post:
+      tags: [Users]
+      summary: Создать нового пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        201:
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+
+  # --- Профиль ---
+  /profile:
+    put:
+      tags: [Profile]
+      summary: Обновить данные профиля
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateRequest'
+      responses:
+        200:
+          description: Профиль обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+
+components:
+  schemas:
+    # --- Заявления ---
+    StatementCreateRequest:
+      type: object
+      properties:
+        templateId:
+          type: integer
+          example: 1
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/Field'
+      required: [templateId, fields]
+
+    Field:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Тема"
+        value:
+          type: string
+          example: "Отпуск"
+
+    StatementResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        processedBy:
+          type: string
+        comment:
+          type: string
+      required: [id, status, createdAt]
+
+    StatementShort:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        author:
+          $ref: '#/components/schemas/UserShort'
+
+    DecisionRequest:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected]
+          example: "approved"
+        comment:
+          type: string
+          example: "Заявление одобрено."
+      required: [decision]
+
+    # --- Шаблоны ---
+    TemplateCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Заявление на отпуск"
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemplateField'
+      required: [name, fields]
+
+    TemplateField:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Дата начала"
+        type:
+          type: string
+          enum: [text, date, number]
+          example: "date"
+        required:
+          type: boolean
+          example: true
+
+    TemplateResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 5
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    # --- Пользователи ---
+    UserCreateRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        name:
+          type: string
+          example: "Иван Иванов"
+        role:
+          type: string
+          enum: [user, manager, admin]
+          example: "user"
+      required: [email, role]
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 10
+        email:
+          type: string
+        role:
+          type: string
+          
+    UserShort:  # Новая схема для краткого описания пользователя
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        department:
+          type: string
+          example: "Отдел разработки"
+
+    # --- Профиль ---
+    ProfileUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Новое имя"
+        password:
+          type: string
+          example: "new_password_123"
+        email:
+          type: string
+          example: "newmail@example.com"
+
+securitySchemes:
+  BearerAuth:
+    type: http
+    scheme: bearer
+    bearerFormat: JWT
+
+security:
+  - BearerAuth: []
